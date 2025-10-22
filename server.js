@@ -45,4 +45,7 @@ app.post("/ingest-listing", async (req, res) => {
 });
 
 // 🚀 Puerto de escucha
-const PORT = process.env.PORT
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Ingestion server running on port ${PORT}`);
+});
