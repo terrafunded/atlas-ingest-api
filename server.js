@@ -7,16 +7,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔧 Configurar conexión a la base de datos Supabase (PostgreSQL)
+// ✅ Conexión a la base de datos (PostgreSQL)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  host: "db.rwyobvwzulgmkwzomuog.supabase.co", // dominio correcto
-  port: 5432,
-  family: 4 // 🔥 Forzar IPv4
+  ssl: { rejectUnauthorized: false }
 });
 
-// 🧩 Endpoint principal
+// ✅ Endpoint principal para insertar listings
 app.post("/ingest-listing", async (req, res) => {
   const { source, url, html } = req.body;
 
@@ -37,9 +34,13 @@ app.post("/ingest-listing", async (req, res) => {
     `;
 
     await pool.query(query, [source, url, html]);
-    return res.json({ status: "success", message: "Inserted into scraped_html" });
+    console.log(`✅ Inserted/updated record for ${url}`);
+    return res.json({
+      status: "success",
+      message: `Inserted into scraped_html: ${url}`
+    });
   } catch (error) {
-    console.error("❌ DB insert error:", error.message);
+    console.error("❌ Database error:", error.message);
     return res.status(500).json({ error: error.message });
   }
 });
