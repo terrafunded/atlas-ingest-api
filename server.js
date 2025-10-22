@@ -7,13 +7,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Configurar conexión a la base de datos (PostgreSQL)
+// ✅ Configuración de conexión PostgreSQL (Supabase)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
-  host: "db.rwyobvwzulgmkwzomuog.supabase.co", // dominio del host
+  host: "52.213.34.17", // ✅ dirección IPv4 directa de tu host Supabase
   port: 5432,
-  family: 4 // ✅ fuerza IPv4, evita el error ENETUNREACH
+  family: 4 // ✅ fuerza IPv4 (Render intenta IPv6 por defecto)
 });
 
 // ✅ Endpoint principal: /ingest-listing
@@ -26,6 +26,7 @@ app.post("/ingest-listing", async (req, res) => {
   }
 
   try {
+    // Inserta o actualiza el registro según la URL (única)
     const query = `
       INSERT INTO scraped_html (source, url, html, scraped_at)
       VALUES ($1, $2, $3, NOW())
@@ -38,6 +39,7 @@ app.post("/ingest-listing", async (req, res) => {
 
     await pool.query(query, [source, url, html]);
     console.log(`✅ Inserted/updated record for ${url}`);
+
     return res.json({
       status: "success",
       message: `Inserted into scraped_html: ${url}`
@@ -46,6 +48,11 @@ app.post("/ingest-listing", async (req, res) => {
     console.error("❌ Database error:", error.message);
     return res.status(500).json({ error: error.message });
   }
+});
+
+// ✅ Ruta de prueba (opcional)
+app.get("/", (req, res) => {
+  res.send("✅ Atlas Ingest API is running");
 });
 
 // 🚀 Puerto de escucha (Render asigna automáticamente uno)
