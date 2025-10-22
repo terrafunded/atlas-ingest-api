@@ -10,7 +10,7 @@ app.use(express.json());
 // Configurar conexión a la base de datos Supabase (PostgreSQL)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
 });
 
 // Endpoint principal
@@ -36,4 +36,9 @@ app.post("/ingest-listing", async (req, res) => {
     return res.json({ status: "success", message: "Inserted into scraped_html" });
   } catch (error) {
     console.error("❌ DB insert error:", error.message);
-    return res.status(500).json({ error: error.mess
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Puerto de escucha
+const PORT = process.env.
