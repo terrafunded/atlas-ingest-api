@@ -7,10 +7,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Conexión a la base de datos de Lovable Cloud (PostgreSQL)
+// Conexión a la base de datos Supabase (PostgreSQL)
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL, // tu variable de entorno
-  ssl: { rejectUnauthorized: false }
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
 // Endpoint principal
@@ -28,11 +28,4 @@ app.post("/ingest-listing", async (req, res) => {
       ON CONFLICT (url) DO UPDATE SET
         source = EXCLUDED.source,
         html = EXCLUDED.html,
-        scraped_at = NOW();
-    `;
-
-    await pool.query(query, [source, url, html]);
-    res.json({ status: "success", message: "Inserted into scraped_html" });
-  } catch (err) {
-    console.error("❌ DB insert error:", err.message);
-    res.stat
+        s
