@@ -7,13 +7,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ Conexión a la base de datos (PostgreSQL)
+// ✅ Configurar conexión a la base de datos (PostgreSQL)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  host: "db.rwyobvwzulgmkwzomuog.supabase.co", // dominio del host
+  port: 5432,
+  family: 4 // ✅ fuerza IPv4, evita el error ENETUNREACH
 });
 
-// ✅ Endpoint principal para insertar listings
+// ✅ Endpoint principal: /ingest-listing
 app.post("/ingest-listing", async (req, res) => {
   const { source, url, html } = req.body;
 
@@ -45,7 +48,7 @@ app.post("/ingest-listing", async (req, res) => {
   }
 });
 
-// 🚀 Puerto de escucha
+// 🚀 Puerto de escucha (Render asigna automáticamente uno)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Ingestion server running on port ${PORT}`);
