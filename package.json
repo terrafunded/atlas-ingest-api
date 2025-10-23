@@ -1,7 +1,7 @@
 {
   "name": "atlas-ingest-api",
   "version": "1.0.0",
-  "description": "Microservicio Render que recibe y reenvía datos de terrenos a Lovable Cloud.",
+  "description": "Microservicio Render que recibe, parsea y orquesta el pipeline Atlas hacia Lovable Cloud.",
   "type": "module",
   "main": "server.js",
   "scripts": {
