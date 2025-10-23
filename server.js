@@ -1,43 +1,51 @@
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch"; // Render usa Node 18+, fetch ya está disponible, pero lo incluimos por compatibilidad
+import fetch from "node-fetch"; // si Render usa Node 18+ puedes eliminar esta línea, fetch ya existe globalmente
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ URL del endpoint de Lovable (cámbiala cuando te la den)
-const LOVABLE_ENDPOINT = "https://lovable.yourproject.dev/api/ingest-listing";
+// ✅ Endpoint HTTP que Lovable/Supabase te dio
+const LOVABLE_ENDPOINT = "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1/ingest-listing";
 
-// ✅ Endpoint principal que Render sigue usando
+// ✅ Endpoint principal que usará tu agente o tu curl
 app.post("/ingest-listing", async (req, res) => {
   const { source, url, html } = req.body;
 
+  // Validar campos obligatorios
   if (!source || !url || !html) {
     return res.status(400).json({ error: "Missing fields" });
   }
 
   try {
-    // 🔄 Reenviar el JSON al endpoint de Lovable
+    // 🔄 Enviar los datos a Lovable vía HTTPS
     const response = await fetch(LOVABLE_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ source, url, html }),
     });
 
-    // 🔍 Leer respuesta del servidor Lovable
+    // Leer respuesta de Lovable
     const result = await response.json();
 
-    // ✅ Devolver el resultado a quien llamó a Render
+    // ✅ Devolver el resultado al cliente que llamó a Render
     return res.status(response.status).json(result);
   } catch (error) {
-    console.error("❌ Error sending data to Lovable:", error.message);
+    console.error("❌ Error al reenviar a Lovable:", error.message);
     return res.status(500).json({ error: "Failed to reach Lovable endpoint" });
   }
 });
 
-// 🚀 Puerto de escucha (Render asigna uno automáticamente)
+// ✅ Ruta de prueba (opcional)
+app.get("/", (req, res) => {
+  res.send("✅ Atlas Ingest Forwarder is running on Render");
+});
+
+// 🚀 Puerto de escucha (Render asigna automáticamente uno)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Render forwarding server running on port ${PORT}`);
+  console.log(`✅ Forwarder running on port ${PORT}`);
 });
