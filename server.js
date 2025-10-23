@@ -1,7 +1,7 @@
 import express from "express";
 import fetch from "node-fetch";
-import Ajv from "ajv";
 import cors from "cors";
+import Ajv from "ajv";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 10000;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const LOVABLE_BASE_URL = "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
 
-// === IDs de tus agentes/assistants ===
+// IDs y assistants
 const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID; // asst_JlXMVNRYXAWrloJzdIVXGT7c
 const AGENTKIT_LANDSCORE_ID = process.env.AGENTKIT_LANDSCORE_ID;
 const AGENTKIT_SCRAPER_DIRECTOR_ID = process.env.AGENTKIT_SCRAPER_DIRECTOR_ID;
@@ -25,8 +25,6 @@ const AGENTKIT_LANDWATCH_AGENT_ID = process.env.AGENTKIT_LANDWATCH_AGENT_ID;
 // =======================================================
 // 🧩 FUNCIONES AUXILIARES
 // =======================================================
-
-// Llama una función HTTP de Lovable (Edge Functions)
 async function lovablePost(path, body) {
   const res = await fetch(`${LOVABLE_BASE_URL}${path}`, {
     method: "POST",
@@ -50,20 +48,25 @@ async function invokeNormalizerAssistant(payload) {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "OpenAI-Beta": "assistants=v2"
       },
-      body: "{}"
+      body: JSON.stringify({})
     });
 
     const thread = await threadRes.json();
-    if (!thread.id) throw new Error("No se pudo crear el thread.");
+    if (!thread.id) {
+      const txt = await threadRes.text();
+      throw new Error(`No se pudo crear el thread. Respuesta: ${txt}`);
+    }
 
-    // Enviar mensaje con el payload
+    // Enviar mensaje al Assistant
     await fetch(`https://api.openai.com/v1/threads/${thread.id}/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "OpenAI-Beta": "assistants=v2"
       },
       body: JSON.stringify({
         role: "user",
@@ -71,12 +74,13 @@ async function invokeNormalizerAssistant(payload) {
       })
     });
 
-    // Ejecutar el Assistant
+    // Ejecutar Assistant
     const runRes = await fetch(`https://api.openai.com/v1/threads/${thread.id}/runs`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "OpenAI-Beta": "assistants=v2"
       },
       body: JSON.stringify({ assistant_id: ASSISTANT_NORMALIZER_ID })
     });
@@ -115,7 +119,7 @@ app.post("/ingest-listing", async (req, res) => {
 });
 
 // =======================================================
-// 🟨 ENDPOINT: /process-pipeline
+// 🟨 ENDPOINT: /process-pipeline (normalización completa)
 // =======================================================
 app.post("/process-pipeline", async (_req, res) => {
   try {
@@ -127,6 +131,7 @@ app.post("/process-pipeline", async (_req, res) => {
     let normalizedCount = 0;
 
     for (const rec of listToNormalize) {
+      console.log("📦 Enviando registro:", rec);
       const result = await invokeNormalizerAssistant(rec);
       console.log("Resultado Normalizer:", result);
       normalizedCount++;
