@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch"; // si Render usa Node 18+ puedes eliminar esta línea, fetch ya existe globalmente
 
 const app = express();
 app.use(cors());
@@ -19,7 +18,7 @@ app.post("/ingest-listing", async (req, res) => {
   }
 
   try {
-    // 🔄 Enviar los datos a Lovable vía HTTPS
+    // 🔄 Enviar los datos a Lovable vía HTTPS (usando fetch nativo de Node 22)
     const response = await fetch(LOVABLE_ENDPOINT, {
       method: "POST",
       headers: {
