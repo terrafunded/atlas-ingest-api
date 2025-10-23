@@ -1,12 +1,21 @@
 {
   "name": "atlas-ingest-api",
   "version": "1.0.0",
+  "description": "Microservicio Render que recibe y reenvía datos de terrenos a Lovable Cloud.",
   "type": "module",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
-  }
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "ajv": "^8.12.0",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "Rodrigo Blanco",
+  "license": "MIT"
 }
