@@ -4,7 +4,7 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-import puppeteer from "puppeteer"; // 🧩 Render dinámico real
+import puppeteer from "puppeteer"; // Puppeteer con instalación automática
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -124,85 +124,35 @@ app.post("/ingest-listing", async (req, res) => {
 });
 
 // =======================================================
-// 🟨 ENDPOINT — PROCESS PIPELINE (NORMALIZACIÓN)
-// =======================================================
-app.post("/process-pipeline", async (_req, res) => {
-  try {
-    console.log("🚀 Ejecutando pipeline de normalización...");
-    const pending = await lovablePost("/get-not-normalized", { limit: 10 });
-
-    const listToNormalize = Array.isArray(pending?.data) ? pending.data : [];
-    console.log(`📦 ${listToNormalize.length} registros pendientes.`);
-
-    let normalizedCount = 0;
-
-    for (const rec of listToNormalize) {
-      console.log(`🧾 Normalizando: ${rec.url || rec.id}`);
-      const result = await invokeNormalizerAssistant(rec);
-      console.log("➡️ Resultado:", result);
-      normalizedCount++;
-      await new Promise((r) => setTimeout(r, 800));
-    }
-
-    console.log("✅ Normalización completada.");
-    return res.json({
-      status: "ok",
-      summary: { normalized: normalizedCount },
-    });
-  } catch (err) {
-    console.error("❌ Error /process-pipeline:", err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// =======================================================
-// 🧭 PROXY — Bypass Cloudflare
-// =======================================================
-app.get("/proxy", async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).json({ error: "Missing url parameter" });
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-    });
-    const html = await response.text();
-    res.json({ status: "ok", html_length: html.length, html: html.substring(0, 5000) });
-  } catch (err) {
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
-
-// =======================================================
-// 🧠 NUEVO — ENDPOINT RENDER-PAGE (usa Puppeteer)
+// 🧭 NUEVO — RENDER-PAGE (instala Chromium dinámicamente)
 // =======================================================
 app.get("/render-page", async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: "Missing url parameter" });
+  console.log("🌐 Renderizando página con instalación dinámica:", url);
 
-  console.log("🌐 Renderizando página:", url);
   let browser;
   try {
+    // Forzar instalación automática de Chromium si no existe
+    const browserFetcher = puppeteer.createBrowserFetcher();
+    const revisionInfo = await browserFetcher.download("1270643388");
+    console.log("✅ Chromium descargado en:", revisionInfo.executablePath);
+
     browser = await puppeteer.launch({
       headless: "new",
+      executablePath: revisionInfo.executablePath,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
+
     const page = await browser.newPage();
     await page.setUserAgent(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     );
-
     await page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
     await page.waitForTimeout(3000);
-
     const html = await page.content();
-    console.log("✅ Página renderizada con éxito:", html.length, "bytes");
 
+    console.log("✅ Renderizado con éxito:", html.length, "bytes");
     res.json({
       status: "ok",
       url,
@@ -210,43 +160,7 @@ app.get("/render-page", async (req, res) => {
       html: html.substring(0, 5000),
     });
   } catch (err) {
-    console.error("❌ Error renderizando página:", err);
-    res.status(500).json({ status: "error", message: err.message });
-  } finally {
-    if (browser) await browser.close();
-  }
-});
-
-// =======================================================
-// 🧩 NUEVO — ENDPOINT EXTRACT-LISTINGS
-// =======================================================
-app.get("/extract-listings", async (req, res) => {
-  const url = req.query.url || "https://ranchrealestate.com/for-sale/";
-  console.log("🔍 Extrayendo listados de:", url);
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    );
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-    await page.waitForTimeout(5000);
-
-    // Extraer los links reales a propiedades
-    const listings = await page.evaluate(() => {
-      const anchors = Array.from(document.querySelectorAll("a[href*='/property/']"));
-      const urls = anchors.map(a => a.href).filter((v, i, arr) => arr.indexOf(v) === i);
-      return urls;
-    });
-
-    console.log(`✅ ${listings.length} listados encontrados`);
-    res.json({ status: "ok", count: listings.length, listings });
-  } catch (err) {
-    console.error("❌ Error /extract-listings:", err);
+    console.error("❌ Error renderizando:", err);
     res.status(500).json({ status: "error", message: err.message });
   } finally {
     if (browser) await browser.close();
@@ -257,13 +171,6 @@ app.get("/extract-listings", async (req, res) => {
 // 🩵 HEALTH CHECK
 // =======================================================
 app.get("/", (_req, res) => res.send("Atlas Ingest API ✅ Running"));
-app.get("/healthz", (_req, res) =>
-  res.json({ ok: true, timestamp: new Date().toISOString() })
+app.listen(PORT, () =>
+  console.log(`🚀 Atlas Ingest API corriendo en puerto ${PORT}`)
 );
-
-// =======================================================
-// 🚀 INICIAR SERVIDOR
-// =======================================================
-app.listen(PORT, () => {
-  console.log(`🚀 Atlas Ingest API corriendo en puerto ${PORT}`);
-});
