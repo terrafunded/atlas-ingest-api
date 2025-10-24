@@ -5,6 +5,7 @@ import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 import puppeteer from "puppeteer";
+import OpenAI from "openai"; // 🧠 Conexión directa con OpenAI
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -15,11 +16,14 @@ app.use(cors({ origin: true }));
 // =======================================================
 const PORT = process.env.PORT || 10000;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
+const ASSISTANT_SCRAPER_ID = process.env.ASSISTANT_SCRAPER_ID;
 const LOVABLE_BASE_URL =
   process.env.LOVABLE_BASE_URL ||
   "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
 const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID;
 const LOVABLE_INGEST_KEY = process.env.LOVABLE_INGEST_KEY || "FALUEFAPIEMASTER";
+
+const client = new OpenAI({ apiKey: OPENAI_KEY });
 
 // =======================================================
 // 🧩 FUNCIÓN AUXILIAR — LLAMAR FUNCIONES EN LOVABLE
@@ -27,9 +31,7 @@ const LOVABLE_INGEST_KEY = process.env.LOVABLE_INGEST_KEY || "FALUEFAPIEMASTER";
 async function lovablePost(path, body) {
   const res = await fetch(`${LOVABLE_BASE_URL}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
   if (!res.ok) {
@@ -198,7 +200,8 @@ app.get("/render-page", async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -214,7 +217,7 @@ app.get("/render-page", async (req, res) => {
     );
 
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-    await new Promise((resolve) => setTimeout(resolve, 3000)); // Espera moderna
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     const html = await page.content();
     console.log("✅ Renderizado con éxito:", html.length, "bytes");
@@ -234,7 +237,7 @@ app.get("/render-page", async (req, res) => {
 });
 
 // =======================================================
-// 🧩 NUEVO — ENDPOINT EXTRACT-LISTINGS (usa Puppeteer)
+// 🧩 NUEVO — ENDPOINT EXTRACT-LISTINGS
 // =======================================================
 app.get("/extract-listings", async (req, res) => {
   const url = req.query.url || "https://ranchrealestate.com/for-sale/";
@@ -243,7 +246,8 @@ app.get("/extract-listings", async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--single-process"],
     });
 
@@ -252,8 +256,11 @@ app.get("/extract-listings", async (req, res) => {
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
     const listings = await page.evaluate(() => {
-      const anchors = Array.from(document.querySelectorAll("a[href*='/property/']"));
-      return anchors.map((a) => a.href);
+      const anchors = Array.from(
+        document.querySelectorAll("a[href*='/property/']")
+      );
+      const urls = anchors.map((a) => a.href);
+      return [...new Set(urls)];
     });
 
     console.log(`✅ ${listings.length} listados encontrados`);
@@ -263,6 +270,27 @@ app.get("/extract-listings", async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   } finally {
     if (browser) await browser.close();
+  }
+});
+
+// =======================================================
+// 🚀 NUEVO — ENDPOINT RUN-SCRAPER (invoca Assistant OpenAI)
+// =======================================================
+app.post("/run-scraper", async (req, res) => {
+  try {
+    console.log("🤖 Ejecutando Assistant RanchRealEstateScraper...");
+    const run = await client.beta.threads.createAndRun({
+      assistant_id: ASSISTANT_SCRAPER_ID,
+      thread: {
+        messages: [
+          { role: "user", content: "Start the RanchRealEstate scraping process" },
+        ],
+      },
+    });
+    res.json(run);
+  } catch (err) {
+    console.error("❌ Error /run-scraper:", err);
+    res.status(500).json({ status: "error", message: err.message });
   }
 });
 
