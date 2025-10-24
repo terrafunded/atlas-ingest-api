@@ -10,7 +10,7 @@ app.use(cors({ origin: true }));
 const PORT = process.env.PORT || 10000;
 
 // =======================================================
-// 🧠  Endpoint que usa la versión integrada de Chromium
+// ⚙️ Endpoint con descarga de Chromium dinámica
 // =======================================================
 app.get("/render-page", async (req, res) => {
   const url = req.query.url;
@@ -18,15 +18,23 @@ app.get("/render-page", async (req, res) => {
 
   console.log("🌐 Renderizando:", url);
   let browser;
+
   try {
-    // 🚀  Usa el binario de Chromium que Puppeteer ya trae empaquetado
+    // 🔹 Descargar Chromium si no existe
+    const { downloadBrowser } = await import("puppeteer/internal/node/install.js");
+    const browserPath = await downloadBrowser();
+
+    console.log("✅ Chromium instalado en:", browserPath);
+
     browser = await puppeteer.launch({
       headless: true,
+      executablePath: browserPath,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
-        "--single-process"
+        "--single-process",
+        "--no-zygote"
       ]
     });
 
@@ -38,7 +46,7 @@ app.get("/render-page", async (req, res) => {
     await page.waitForTimeout(3000);
 
     const html = await page.content();
-    console.log("✅ Renderizado:", html.length, "bytes");
+    console.log("✅ Renderizado con éxito:", html.length, "bytes");
 
     res.json({
       status: "ok",
