@@ -4,6 +4,7 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import puppeteer from "puppeteer"; // 🧩 Render dinámico real
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -18,8 +19,6 @@ const LOVABLE_BASE_URL =
   process.env.LOVABLE_BASE_URL ||
   "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
 const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID;
-
-// 🔐 Clave fija para la autenticación con Lovable
 const LOVABLE_INGEST_KEY = process.env.LOVABLE_INGEST_KEY || "FALUEFAPIEMASTER";
 
 // =======================================================
@@ -28,9 +27,7 @@ const LOVABLE_INGEST_KEY = process.env.LOVABLE_INGEST_KEY || "FALUEFAPIEMASTER";
 async function lovablePost(path, body) {
   const res = await fetch(`${LOVABLE_BASE_URL}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
   if (!res.ok) {
@@ -159,7 +156,7 @@ app.post("/process-pipeline", async (_req, res) => {
 });
 
 // =======================================================
-// 🧭 PROXY PARA SCRAPING REAL (bypass Cloudflare y JS dinámico)
+// 🧭 PROXY — Bypass Cloudflare
 // =======================================================
 app.get("/proxy", async (req, res) => {
   const url = req.query.url;
@@ -168,35 +165,91 @@ app.get("/proxy", async (req, res) => {
   try {
     const response = await fetch(url, {
       headers: {
-        // Simula un navegador real para evitar bloqueos por Cloudflare
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Referer": "https://www.google.com/",
-        Connection: "keep-alive",
       },
       redirect: "follow",
     });
-
     const html = await response.text();
-    const status = response.status;
+    res.json({ status: "ok", html_length: html.length, html: html.substring(0, 5000) });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
 
-    // Enviamos una respuesta resumida para verificar longitud del HTML
+// =======================================================
+// 🧠 NUEVO — ENDPOINT RENDER-PAGE (usa Puppeteer)
+// =======================================================
+app.get("/render-page", async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: "Missing url parameter" });
+
+  console.log("🌐 Renderizando página:", url);
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    );
+
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
+    await page.waitForTimeout(3000);
+
+    const html = await page.content();
+    console.log("✅ Página renderizada con éxito:", html.length, "bytes");
+
     res.json({
       status: "ok",
-      code: status,
       url,
       html_length: html.length,
-      preview: html.substring(0, 5000), // Primeros 5k caracteres para debug
+      html: html.substring(0, 5000),
     });
   } catch (err) {
-    res.status(500).json({
-      status: "error",
-      message: err.message,
-      url,
+    console.error("❌ Error renderizando página:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  } finally {
+    if (browser) await browser.close();
+  }
+});
+
+// =======================================================
+// 🧩 NUEVO — ENDPOINT EXTRACT-LISTINGS
+// =======================================================
+app.get("/extract-listings", async (req, res) => {
+  const url = req.query.url || "https://ranchrealestate.com/for-sale/";
+  console.log("🔍 Extrayendo listados de:", url);
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    );
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+    await page.waitForTimeout(5000);
+
+    // Extraer los links reales a propiedades
+    const listings = await page.evaluate(() => {
+      const anchors = Array.from(document.querySelectorAll("a[href*='/property/']"));
+      const urls = anchors.map(a => a.href).filter((v, i, arr) => arr.indexOf(v) === i);
+      return urls;
+    });
+
+    console.log(`✅ ${listings.length} listados encontrados`);
+    res.json({ status: "ok", count: listings.length, listings });
+  } catch (err) {
+    console.error("❌ Error /extract-listings:", err);
+    res.status(500).json({ status: "error", message: err.message });
+  } finally {
+    if (browser) await browser.close();
   }
 });
 
