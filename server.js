@@ -1,29 +1,24 @@
+// =======================================================
+// 🌎 ATLAS INGEST API (Backend principal del pipeline)
+// =======================================================
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-import Ajv from "ajv";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(cors({ origin: true }));
 
+// =======================================================
+// ⚙️ CONFIGURACIÓN GLOBAL
+// =======================================================
 const PORT = process.env.PORT || 10000;
-
-// =======================================================
-// 🔗 CONFIGURACIÓN GLOBAL
-// =======================================================
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
-const LOVABLE_BASE_URL = "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
-
-// IDs y assistants
-const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID; // asst_JlXMVNRYXAWrloJzdIVXGT7c
-const AGENTKIT_LANDSCORE_ID = process.env.AGENTKIT_LANDSCORE_ID;
-const AGENTKIT_SCRAPER_DIRECTOR_ID = process.env.AGENTKIT_SCRAPER_DIRECTOR_ID;
-const AGENTKIT_RANCH_AGENT_ID = process.env.AGENTKIT_RANCH_AGENT_ID;
-const AGENTKIT_LANDWATCH_AGENT_ID = process.env.AGENTKIT_LANDWATCH_AGENT_ID;
+const LOVABLE_BASE_URL = process.env.LOVABLE_BASE_URL || "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
+const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID;
 
 // =======================================================
-// 🧩 FUNCIONES AUXILIARES
+// 🧩 FUNCIÓN AUXILIAR — LLAMAR FUNCIONES EN LOVABLE
 // =======================================================
 async function lovablePost(path, body) {
   const res = await fetch(`${LOVABLE_BASE_URL}${path}`, {
@@ -32,18 +27,18 @@ async function lovablePost(path, body) {
     body: JSON.stringify(body || {})
   });
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Lovable ${path} error ${res.status}: ${txt}`);
+    const text = await res.text();
+    throw new Error(`Lovable ${path} error ${res.status}: ${text}`);
   }
   return res.json();
 }
 
 // =======================================================
-// 🤖 INVOCAR ASSISTANT NORMALIZER (Assistants API)
+// 🧠 FUNCIÓN — LLAMAR AL ASSISTANT NORMALIZER
 // =======================================================
 async function invokeNormalizerAssistant(payload) {
   try {
-    // Crear thread
+    // 1️⃣ Crear thread
     const threadRes = await fetch("https://api.openai.com/v1/threads", {
       method: "POST",
       headers: {
@@ -53,14 +48,10 @@ async function invokeNormalizerAssistant(payload) {
       },
       body: JSON.stringify({})
     });
-
     const thread = await threadRes.json();
-    if (!thread.id) {
-      const txt = await threadRes.text();
-      throw new Error(`No se pudo crear el thread. Respuesta: ${txt}`);
-    }
+    if (!thread.id) throw new Error(`No se pudo crear el thread: ${JSON.stringify(thread)}`);
 
-    // Enviar mensaje al Assistant
+    // 2️⃣ Enviar mensaje
     await fetch(`https://api.openai.com/v1/threads/${thread.id}/messages`, {
       method: "POST",
       headers: {
@@ -74,7 +65,7 @@ async function invokeNormalizerAssistant(payload) {
       })
     });
 
-    // Ejecutar Assistant
+    // 3️⃣ Ejecutar Assistant
     const runRes = await fetch(`https://api.openai.com/v1/threads/${thread.id}/runs`, {
       method: "POST",
       headers: {
@@ -86,21 +77,22 @@ async function invokeNormalizerAssistant(payload) {
     });
 
     const runData = await runRes.json();
+    console.log("🧠 Respuesta Normalizer:", runData);
     return runData;
   } catch (err) {
-    console.error("Error invokeNormalizerAssistant:", err);
+    console.error("❌ Error invokeNormalizerAssistant:", err);
     return { status: "error", message: err.message };
   }
 }
 
 // =======================================================
-// 🟩 ENDPOINT: /ingest-listing (recibe datos de scraping)
+// 🟩 ENDPOINT — INGEST LISTING (desde SCRAPER)
 // =======================================================
 app.post("/ingest-listing", async (req, res) => {
   try {
     const { source, url, html } = req.body || {};
     if (!source || !url || !html) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: "Campos requeridos: source, url, html" });
     }
 
     const webhookUrl = `${LOVABLE_BASE_URL}/scraper-webhook`;
@@ -111,30 +103,33 @@ app.post("/ingest-listing", async (req, res) => {
     });
 
     const result = await r.json();
+    console.log("✅ Ingesta recibida:", url);
     return res.json({ status: "success", result });
   } catch (err) {
-    console.error("Error /ingest-listing:", err);
+    console.error("❌ Error /ingest-listing:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 // =======================================================
-// 🟨 ENDPOINT: /process-pipeline (normalización completa)
+// 🟨 ENDPOINT — PROCESS PIPELINE (NORMALIZACIÓN)
 // =======================================================
 app.post("/process-pipeline", async (_req, res) => {
   try {
     console.log("🚀 Ejecutando pipeline de normalización...");
-
     const pending = await lovablePost("/get-not-normalized", { limit: 10 });
+
     const listToNormalize = Array.isArray(pending?.data) ? pending.data : [];
+    console.log(`📦 ${listToNormalize.length} registros pendientes.`);
 
     let normalizedCount = 0;
 
     for (const rec of listToNormalize) {
-      console.log("📦 Enviando registro:", rec);
+      console.log(`🧾 Normalizando: ${rec.url || rec.id}`);
       const result = await invokeNormalizerAssistant(rec);
-      console.log("Resultado Normalizer:", result);
+      console.log("➡️ Resultado:", result);
       normalizedCount++;
+      await new Promise(r => setTimeout(r, 800)); // ligera pausa
     }
 
     console.log("✅ Normalización completada.");
@@ -143,22 +138,22 @@ app.post("/process-pipeline", async (_req, res) => {
       summary: { normalized: normalizedCount }
     });
   } catch (err) {
-    console.error("Error /process-pipeline:", err);
+    console.error("❌ Error /process-pipeline:", err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 // =======================================================
-// ❤️ HEALTH CHECKS
+// 🩵 HEALTH CHECK
 // =======================================================
-app.get("/", (_req, res) => res.send("Atlas API ✅ NormalizerAssistant activo"));
+app.get("/", (_req, res) => res.send("Atlas Ingest API ✅ Running"));
 app.get("/healthz", (_req, res) =>
   res.json({ ok: true, timestamp: new Date().toISOString() })
 );
 
 // =======================================================
-// 🚀 START SERVER
+// 🚀 INICIAR SERVIDOR
 // =======================================================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Atlas Ingest API corriendo en puerto ${PORT}`);
 });
