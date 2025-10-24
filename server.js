@@ -2,12 +2,16 @@
 // 🕷️ ATLAS SCRAPER API (componente de extracción para Atlas Ingest)
 // =======================================================
 //
-// ✅ Versión completa y estable (incluye todo)
+// ✅ Versión completa y estable (incluye TODO):
 // - /extract-listings → Descarga listado principal y envía a Lovable
 // - /render-page → Renderiza HTML de una URL
 // - /ingest-listing → Recibe HTML ya scrapeado y lo reenvía a Lovable
+// - /test-endpoints → Prueba de conexión directa a Lovable
 // - Manejo de errores con try/catch y logs completos
-// - Autenticación con Bearer Key hacia Lovable
+// - Autenticación mediante encabezado "x-ingest-key"
+// - Reintento automático con backoff exponencial
+// - Compatible con Render y Supabase/Lovable
+//
 // =======================================================
 
 import express from "express";
@@ -26,7 +30,7 @@ const PORT = process.env.PORT || 10000;
 // URL base para enviar datos a Lovable Cloud (tu Supabase functions endpoint)
 const LOVABLE_WEBHOOK_URL =
   process.env.LOVABLE_WEBHOOK_URL ||
-  "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1/ingest-html";
+  "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1/scraper-webhook";
 
 // Clave secreta de autenticación hacia Lovable
 const LOVABLE_INGEST_KEY =
@@ -66,17 +70,18 @@ async function safeFetch(url, options = {}, retries = 3, delay = 1500) {
 // =======================================================
 async function sendToLovable(payload) {
   try {
+    console.log("📤 Enviando a Lovable...");
     const res = await fetch(LOVABLE_WEBHOOK_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${LOVABLE_INGEST_KEY}`,
+        "x-ingest-key": LOVABLE_INGEST_KEY,
       },
       body: JSON.stringify(payload),
     });
 
     const text = await res.text();
-    console.log("📤 Respuesta Lovable:", text.slice(0, 200));
+    console.log("📨 Respuesta Lovable:", text.slice(0, 200));
 
     return {
       ok: res.ok,
@@ -113,7 +118,6 @@ app.get("/extract-listings", async (req, res) => {
     console.log("🔍 Iniciando extracción de listados desde:", url);
 
     const html = await safeFetch(url);
-
     console.log(`✅ HTML recibido (${html.length} caracteres). Enviando a Lovable...`);
 
     const payload = { source, url, html };
@@ -147,7 +151,6 @@ app.get("/render-page", async (req, res) => {
     }
 
     console.log(`🧭 Renderizando página destino: ${target}`);
-
     const html = await safeFetch(target);
     console.log(`📄 Página renderizada (${html.length} chars)`);
 
@@ -175,7 +178,6 @@ app.post("/ingest-listing", async (req, res) => {
     }
 
     console.log(`📩 Ingestando manualmente listing de ${source} (${url})`);
-
     const payload = { source, url, html };
     const lovableResponse = await sendToLovable(payload);
 
@@ -202,6 +204,7 @@ app.post("/ingest-listing", async (req, res) => {
 // =======================================================
 app.get("/test-endpoints", async (req, res) => {
   try {
+    console.log("🧪 Probando conexión con Lovable...");
     const testPayload = {
       source: "TestSource",
       url: "https://example.com",
@@ -209,6 +212,8 @@ app.get("/test-endpoints", async (req, res) => {
     };
 
     const result = await sendToLovable(testPayload);
+    console.log("✅ Resultado prueba:", result);
+
     res.json({
       ok: true,
       message: "Conexión con Lovable funcional",
@@ -222,9 +227,30 @@ app.get("/test-endpoints", async (req, res) => {
 });
 
 // =======================================================
+// 🧰 RUTA: /debug
+// =======================================================
+//
+// Permite ver configuraciones actuales para diagnóstico rápido.
+// =======================================================
+app.get("/debug", (req, res) => {
+  res.json({
+    port: PORT,
+    webhook_url: LOVABLE_WEBHOOK_URL,
+    ingest_key_configured: !!LOVABLE_INGEST_KEY,
+  });
+});
+
+// =======================================================
 // 🚀 SERVIDOR EN EJECUCIÓN
 // =======================================================
 app.listen(PORT, () => {
   console.log(`✅ Atlas Scraper API corriendo en puerto ${PORT}`);
-  console.log("🌐 Esperando solicitudes en /extract-listings, /render-page y /ingest-listing");
+  console.log("🌐 Rutas activas:");
+  console.log("   → GET  /");
+  console.log("   → GET  /extract-listings");
+  console.log("   → GET  /render-page?target=<url>");
+  console.log("   → POST /ingest-listing");
+  console.log("   → GET  /test-endpoints");
+  console.log("   → GET  /debug");
+  console.log("🔑 Autenticación con header: x-ingest-key");
 });
