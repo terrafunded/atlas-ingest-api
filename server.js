@@ -10,25 +10,21 @@ app.use(cors({ origin: true }));
 const PORT = process.env.PORT || 10000;
 
 // =======================================================
-// ⚙️ Endpoint con descarga de Chromium dinámica
+// ⚙️ Endpoint con Chromium dinámico (compatible Puppeteer 22+)
 // =======================================================
 app.get("/render-page", async (req, res) => {
   const url = req.query.url;
-  if (!url) return res.status(400).json({ error: "Missing url parameter" });
+  if (!url) {
+    return res.status(400).json({ error: "Missing url parameter" });
+  }
 
   console.log("🌐 Renderizando:", url);
   let browser;
 
   try {
-    // 🔹 Descargar Chromium si no existe
-    const { downloadBrowser } = await import("puppeteer/internal/node/install.js");
-    const browserPath = await downloadBrowser();
-
-    console.log("✅ Chromium instalado en:", browserPath);
-
+    // Lanza Chromium embebido en Puppeteer
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: browserPath,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -39,13 +35,18 @@ app.get("/render-page", async (req, res) => {
     });
 
     const page = await browser.newPage();
+
     await page.setUserAgent(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     );
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
-    await page.waitForTimeout(3000);
+
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+
+    // 👇 Reemplazo moderno de waitForTimeout
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     const html = await page.content();
+
     console.log("✅ Renderizado con éxito:", html.length, "bytes");
 
     res.json({
