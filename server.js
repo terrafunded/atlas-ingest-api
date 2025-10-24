@@ -16,6 +16,8 @@ const PORT = process.env.PORT || 10000;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const LOVABLE_BASE_URL = process.env.LOVABLE_BASE_URL || "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
 const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID;
+// 🔐 NUEVO: Service Role Key para autenticar el webhook de Lovable
+const LOVABLE_SERVICE_KEY = process.env.LOVABLE_SERVICE_KEY;
 
 // =======================================================
 // 🧩 FUNCIÓN AUXILIAR — LLAMAR FUNCIONES EN LOVABLE
@@ -23,7 +25,11 @@ const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID;
 async function lovablePost(path, body) {
   const res = await fetch(`${LOVABLE_BASE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      // Si tus otras funciones de Lovable también requieren auth, descomenta esta línea:
+      // "Authorization": `Bearer ${LOVABLE_SERVICE_KEY}`
+    },
     body: JSON.stringify(body || {})
   });
   if (!res.ok) {
@@ -95,15 +101,27 @@ app.post("/ingest-listing", async (req, res) => {
       return res.status(400).json({ error: "Campos requeridos: source, url, html" });
     }
 
+    // 🔐 IMPORTANTE: Autorización con Service Role Key al webhook
     const webhookUrl = `${LOVABLE_BASE_URL}/scraper-webhook`;
     const r = await fetch(webhookUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${LOVABLE_SERVICE_KEY}`
+      },
       body: JSON.stringify({ source, url, html })
     });
 
-    const result = await r.json();
-    console.log("✅ Ingesta recibida:", url);
+    // Si el webhook requiere respuesta JSON, la parseamos:
+    let result;
+    const contentType = r.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      result = await r.json();
+    } else {
+      result = { status: r.ok ? "success" : "error", httpStatus: r.status };
+    }
+
+    console.log("✅ Ingesta enviada a Lovable:", url, "→", result);
     return res.json({ status: "success", result });
   } catch (err) {
     console.error("❌ Error /ingest-listing:", err);
@@ -129,7 +147,7 @@ app.post("/process-pipeline", async (_req, res) => {
       const result = await invokeNormalizerAssistant(rec);
       console.log("➡️ Resultado:", result);
       normalizedCount++;
-      await new Promise(r => setTimeout(r, 800)); // ligera pausa
+      await new Promise(r => setTimeout(r, 800)); // ligera pausa para evitar picos
     }
 
     console.log("✅ Normalización completada.");
