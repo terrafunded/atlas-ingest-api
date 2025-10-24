@@ -22,6 +22,33 @@ const LOVABLE_INGEST_KEY =
   process.env.LOVABLE_INGEST_KEY || "INGEST_SECRET_KEY";
 
 // =======================================================
+// 🔁 FUNCIÓN DE REINTENTO AUTOMÁTICO CON BACKOFF
+// =======================================================
+async function safeFetch(url, options = {}, retries = 3, delay = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const resp = await fetch(url, options);
+      const text = await resp.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        console.warn(`⚠️ Respuesta no JSON válida en intento ${i + 1}:`, text.slice(0, 150));
+        return { warning: "Respuesta no válida", raw: text };
+      }
+    } catch (err) {
+      console.error(`❌ Error en fetch (intento ${i + 1}):`, err.message);
+      if (i < retries - 1) {
+        const wait = delay * Math.pow(2, i);
+        console.log(`⏳ Reintentando en ${wait} ms...`);
+        await new Promise((r) => setTimeout(r, wait));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+// =======================================================
 // 🧩 FUNCIÓN AUXILIAR — LLAMAR FUNCIONES EN LOVABLE
 // =======================================================
 async function lovablePost(path, body) {
@@ -51,7 +78,7 @@ async function lovablePost(path, body) {
 // 🔧 ENDPOINT DE PRUEBA
 // =======================================================
 app.get("/", (req, res) => {
-  res.send("✅ Atlas Ingest API funcionando correctamente.");
+  res.send("✅ Atlas Ingest API funcionando correctamente con try/catch y retries.");
 });
 
 // =======================================================
@@ -63,8 +90,7 @@ app.post("/process-pipeline", async (req, res) => {
     const outputs = [];
 
     if (current?.required_action?.type === "submit_tool_outputs") {
-      for (const toolCall of current.required_action.submit_tool_outputs
-        .tool_calls) {
+      for (const toolCall of current.required_action.submit_tool_outputs.tool_calls) {
         const fn = toolCall.function.name;
 
         // ===================================================
@@ -72,11 +98,7 @@ app.post("/process-pipeline", async (req, res) => {
         // ===================================================
         if (fn === "extract_listings") {
           try {
-            const resp = await fetch(
-              "https://atlas-scraper-1.onrender.com/extract-listings"
-            );
-            const text = await resp.text();
-            const data = JSON.parse(text);
+            const data = await safeFetch("https://atlas-scraper-1.onrender.com/extract-listings");
             outputs.push({
               tool_call_id: toolCall.id,
               output: JSON.stringify(data),
@@ -95,11 +117,7 @@ app.post("/process-pipeline", async (req, res) => {
         // ===================================================
         else if (fn === "render_page") {
           try {
-            const resp = await fetch(
-              "https://atlas-scraper-1.onrender.com/render-page"
-            );
-            const text = await resp.text();
-            const data = JSON.parse(text);
+            const data = await safeFetch("https://atlas-scraper-1.onrender.com/render-page");
             outputs.push({
               tool_call_id: toolCall.id,
               output: JSON.stringify(data),
@@ -118,7 +136,7 @@ app.post("/process-pipeline", async (req, res) => {
         // ===================================================
         else if (fn === "ingest_listing") {
           try {
-            const resp = await fetch(
+            const data = await safeFetch(
               "https://atlas-scraper-1.onrender.com/ingest-listing",
               {
                 method: "POST",
@@ -126,8 +144,6 @@ app.post("/process-pipeline", async (req, res) => {
                 body: JSON.stringify(req.body || {}),
               }
             );
-            const text = await resp.text();
-            const data = JSON.parse(text);
             outputs.push({
               tool_call_id: toolCall.id,
               output: JSON.stringify(data),
@@ -142,13 +158,11 @@ app.post("/process-pipeline", async (req, res) => {
         }
 
         // ===================================================
-        // 🔄 NORMALIZER EN LOVABLE
+        // 🧮 NORMALIZE LISTINGS (Lovable)
         // ===================================================
         else if (fn === "normalize_listings") {
           try {
-            const data = await lovablePost("normalize-listings", {
-              thread_id: thread.id,
-            });
+            const data = await lovablePost("normalize-listings", { thread_id: thread.id });
             outputs.push({
               tool_call_id: toolCall.id,
               output: JSON.stringify(data),
@@ -163,7 +177,7 @@ app.post("/process-pipeline", async (req, res) => {
         }
 
         // ===================================================
-        // ❓ DESCONOCIDO
+        // ⚠️ DESCONOCIDO
         // ===================================================
         else {
           console.warn("⚠️ Función desconocida:", fn);
@@ -197,13 +211,12 @@ app.post("/process-pipeline", async (req, res) => {
 });
 
 // =======================================================
-// 🧱 ENDPOINTS SECUNDARIOS (passthroughs a Render Scraper)
+// 🧱 ENDPOINTS SECUNDARIOS (Passthroughs a Render Scraper)
 // =======================================================
 app.get("/extract-listings", async (req, res) => {
   try {
-    const resp = await fetch("https://atlas-scraper-1.onrender.com/extract-listings");
-    const text = await resp.text();
-    res.type("application/json").send(text);
+    const data = await safeFetch("https://atlas-scraper-1.onrender.com/extract-listings");
+    res.json(data);
   } catch (err) {
     console.error("❌ Error en /extract-listings:", err);
     res.status(500).json({ error: err.message });
@@ -212,9 +225,8 @@ app.get("/extract-listings", async (req, res) => {
 
 app.get("/render-page", async (req, res) => {
   try {
-    const resp = await fetch("https://atlas-scraper-1.onrender.com/render-page");
-    const text = await resp.text();
-    res.type("application/json").send(text);
+    const data = await safeFetch("https://atlas-scraper-1.onrender.com/render-page");
+    res.json(data);
   } catch (err) {
     console.error("❌ Error en /render-page:", err);
     res.status(500).json({ error: err.message });
@@ -223,13 +235,12 @@ app.get("/render-page", async (req, res) => {
 
 app.post("/ingest-listing", async (req, res) => {
   try {
-    const resp = await fetch("https://atlas-scraper-1.onrender.com/ingest-listing", {
+    const data = await safeFetch("https://atlas-scraper-1.onrender.com/ingest-listing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req.body || {}),
     });
-    const text = await resp.text();
-    res.type("application/json").send(text);
+    res.json(data);
   } catch (err) {
     console.error("❌ Error en /ingest-listing:", err);
     res.status(500).json({ error: err.message });
@@ -240,5 +251,5 @@ app.post("/ingest-listing", async (req, res) => {
 // 🚀 SERVIDOR EN EJECUCIÓN
 // =======================================================
 app.listen(PORT, () => {
-  console.log(`✅ Atlas Ingest API corriendo en puerto ${PORT}`);
+  console.log(`✅ Atlas Ingest API corriendo en puerto ${PORT} con manejo de errores y retries.`);
 });
