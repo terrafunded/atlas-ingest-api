@@ -5,8 +5,7 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "start": "node server.js"
   },
   "engines": {
     "node": ">=18.x"
@@ -15,8 +14,7 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "node-fetch": "^3.3.2",
-    "puppeteer": "22.10.0",
-    "puppeteer-core": "22.10.0"
+    "puppeteer": "^22.10.0"
   },
   "keywords": [
     "atlas",
