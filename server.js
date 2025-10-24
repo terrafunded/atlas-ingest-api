@@ -159,6 +159,48 @@ app.post("/process-pipeline", async (_req, res) => {
 });
 
 // =======================================================
+// 🧭 PROXY PARA SCRAPING REAL (bypass Cloudflare y JS dinámico)
+// =======================================================
+app.get("/proxy", async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: "Missing url parameter" });
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        // Simula un navegador real para evitar bloqueos por Cloudflare
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": "https://www.google.com/",
+        Connection: "keep-alive",
+      },
+      redirect: "follow",
+    });
+
+    const html = await response.text();
+    const status = response.status;
+
+    // Enviamos una respuesta resumida para verificar longitud del HTML
+    res.json({
+      status: "ok",
+      code: status,
+      url,
+      html_length: html.length,
+      preview: html.substring(0, 5000), // Primeros 5k caracteres para debug
+    });
+  } catch (err) {
+    res.status(500).json({
+      status: "error",
+      message: err.message,
+      url,
+    });
+  }
+});
+
+// =======================================================
 // 🩵 HEALTH CHECK
 // =======================================================
 app.get("/", (_req, res) => res.send("Atlas Ingest API ✅ Running"));
