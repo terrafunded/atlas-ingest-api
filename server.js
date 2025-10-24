@@ -14,10 +14,13 @@ app.use(cors({ origin: true }));
 // =======================================================
 const PORT = process.env.PORT || 10000;
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
-const LOVABLE_BASE_URL = process.env.LOVABLE_BASE_URL || "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
+const LOVABLE_BASE_URL =
+  process.env.LOVABLE_BASE_URL ||
+  "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1";
 const ASSISTANT_NORMALIZER_ID = process.env.ASSISTANT_NORMALIZER_ID;
-// 🔐 Header fijo acordado con Lovable
-const LOVABLE_INGEST_KEY = process.env.LOVABLE_INGEST_KEY || "INGEST_SECRET_KEY";
+
+// 🔐 Clave fija para la autenticación con Lovable
+const LOVABLE_INGEST_KEY = process.env.LOVABLE_INGEST_KEY || "FALUEFAPIEMASTER";
 
 // =======================================================
 // 🧩 FUNCIÓN AUXILIAR — LLAMAR FUNCIONES EN LOVABLE
@@ -26,9 +29,9 @@ async function lovablePost(path, body) {
   const res = await fetch(`${LOVABLE_BASE_URL}${path}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify(body || {})
+    body: JSON.stringify(body || {}),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -42,43 +45,44 @@ async function lovablePost(path, body) {
 // =======================================================
 async function invokeNormalizerAssistant(payload) {
   try {
-    // 1️⃣ Crear thread
     const threadRes = await fetch("https://api.openai.com/v1/threads", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
         "Content-Type": "application/json",
-        "OpenAI-Beta": "assistants=v2"
+        "OpenAI-Beta": "assistants=v2",
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({}),
     });
     const thread = await threadRes.json();
-    if (!thread.id) throw new Error(`No se pudo crear el thread: ${JSON.stringify(thread)}`);
+    if (!thread.id)
+      throw new Error(`No se pudo crear el thread: ${JSON.stringify(thread)}`);
 
-    // 2️⃣ Enviar mensaje
     await fetch(`https://api.openai.com/v1/threads/${thread.id}/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_KEY}`,
         "Content-Type": "application/json",
-        "OpenAI-Beta": "assistants=v2"
+        "OpenAI-Beta": "assistants=v2",
       },
       body: JSON.stringify({
         role: "user",
-        content: [{ type: "text", text: JSON.stringify(payload) }]
-      })
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+      }),
     });
 
-    // 3️⃣ Ejecutar Assistant
-    const runRes = await fetch(`https://api.openai.com/v1/threads/${thread.id}/runs`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json",
-        "OpenAI-Beta": "assistants=v2"
-      },
-      body: JSON.stringify({ assistant_id: ASSISTANT_NORMALIZER_ID })
-    });
+    const runRes = await fetch(
+      `https://api.openai.com/v1/threads/${thread.id}/runs`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_KEY}`,
+          "Content-Type": "application/json",
+          "OpenAI-Beta": "assistants=v2",
+        },
+        body: JSON.stringify({ assistant_id: ASSISTANT_NORMALIZER_ID }),
+      }
+    );
 
     const runData = await runRes.json();
     console.log("🧠 Respuesta Normalizer:", runData);
@@ -96,19 +100,21 @@ app.post("/ingest-listing", async (req, res) => {
   try {
     const { source, url, html } = req.body || {};
     if (!source || !url || !html) {
-      return res.status(400).json({ error: "Campos requeridos: source, url, html" });
+      return res
+        .status(400)
+        .json({ error: "Campos requeridos: source, url, html" });
     }
 
-    // Webhook oficial de Lovable
-    const webhookUrl = "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1/scraper-webhook";
+    const webhookUrl =
+      "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1/scraper-webhook";
 
     const r = await fetch(webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-ingest-key": LOVABLE_INGEST_KEY
+        "x-ingest-key": LOVABLE_INGEST_KEY,
       },
-      body: JSON.stringify({ source, url, html })
+      body: JSON.stringify({ source, url, html }),
     });
 
     const result = await r.json();
@@ -138,13 +144,13 @@ app.post("/process-pipeline", async (_req, res) => {
       const result = await invokeNormalizerAssistant(rec);
       console.log("➡️ Resultado:", result);
       normalizedCount++;
-      await new Promise(r => setTimeout(r, 800)); // ligera pausa
+      await new Promise((r) => setTimeout(r, 800));
     }
 
     console.log("✅ Normalización completada.");
     return res.json({
       status: "ok",
-      summary: { normalized: normalizedCount }
+      summary: { normalized: normalizedCount },
     });
   } catch (err) {
     console.error("❌ Error /process-pipeline:", err);
