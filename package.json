@@ -1,7 +1,7 @@
 {
   "name": "atlas-ingest-api",
   "version": "1.0.0",
-  "description": "Backend principal del pipeline Atlas para ingestión, render y normalización de listados de terrenos.",
+  "description": "Backend principal del pipeline Atlas para scraping, ingestión y normalización de listados.",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -20,13 +20,13 @@
   "keywords": [
     "atlas",
     "ingest",
+    "scraper",
     "puppeteer",
     "render",
-    "express",
     "openai",
     "lovable",
     "real-estate",
-    "scraper"
+    "automation"
   ],
   "author": "Rodrigo Blanco",
   "license": "MIT"
