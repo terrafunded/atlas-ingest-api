@@ -7,7 +7,7 @@
 // - GET  /render-page → Renderiza HTML de una URL
 // - POST /ingest-listing → Recibe {source,url,html} y lo envía a Lovable
 // - GET  /test-endpoints → Prueba de conexión directa a Lovable
-// - POST /reprocess-source → NUEVO: Reprocesa TODOS los raw_listings de una fuente
+// - POST /reprocess-source → Reprocesa TODOS los raw_listings de una fuente
 // - Autenticación mediante encabezado "x-ingest-key"
 // - Reintento controlado
 // - Integración con Supabase para leer raw_listings
@@ -28,20 +28,20 @@ app.use(cors({ origin: true }));
 // =======================================================
 const PORT = process.env.PORT || 10000;
 
-// Webhook de Lovable (Supabase Edge Function) para recibir ingestas
+// Webhook de Lovable (Supabase Edge Function)
 const LOVABLE_WEBHOOK_URL =
   process.env.LOVABLE_WEBHOOK_URL ||
-  "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1/scraper-webhook";
+  "https://czgwwsdcxbsuodmvhlgm.supabase.co/functions/v1/scraper-webhook";
 
-// Clave secreta para autenticación entre servicios (la misma que usa Lovable)
+// Clave secreta para autenticación entre servicios
 const LOVABLE_INGEST_KEY =
   process.env.LOVABLE_INGEST_KEY || "FALUEFAPIEMASTER";
 
-// URL pública de este propio servicio (para auto-llamarse a /ingest-listing)
+// URL pública de este servicio (para auto-llamarse)
 const RENDER_API_URL =
   process.env.RENDER_API_URL || "http://localhost:" + PORT;
 
-// Supabase (para leer raw_listings)
+// Supabase (para leer raw_listings y sources)
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const supabase =
@@ -170,7 +170,6 @@ app.get("/render-page", async (req, res) => {
 // =======================================================
 app.post("/ingest-listing", async (req, res) => {
   try {
-    // auth simple por header
     const key = req.headers["x-ingest-key"];
     if (key !== LOVABLE_INGEST_KEY) {
       return res.status(403).json({ error: "Unauthorized" });
@@ -230,16 +229,10 @@ app.get("/test-endpoints", async (req, res) => {
 });
 
 // =======================================================
-// 🔁 NUEVO: /reprocess-source
-// =======================================================
-//
-// Reprocesa TODOS los raw_listings de una fuente dada.
-// Lee de Supabase y reinyecta a /ingest-listing.
-// Auth: mismo header x-ingest-key.
+// 🔁 RUTA: /reprocess-source (versión con lookup por UUID)
 // =======================================================
 app.post("/reprocess-source", async (req, res) => {
   try {
-    // auth
     const key = req.headers["x-ingest-key"];
     if (key !== LOVABLE_INGEST_KEY) {
       return res.status(403).json({ error: "Unauthorized" });
@@ -248,7 +241,7 @@ app.post("/reprocess-source", async (req, res) => {
     if (!supabase) {
       return res
         .status(500)
-        .json({ error: "Supabase no configurado (env vars faltantes)" });
+        .json({ error: "Supabase no configurado (faltan env vars)" });
     }
 
     const { source } = req.body;
@@ -256,15 +249,28 @@ app.post("/reprocess-source", async (req, res) => {
       return res.status(400).json({ error: "El campo 'source' es requerido" });
     }
 
-    console.log(`🔄 Reprocesando listings de la fuente: ${source}`);
+    console.log(`🔎 Buscando UUID para la fuente: ${source}`);
 
-    // 1) Traer raw_listings de esa fuente.
-    // IMPORTANTE: ajusta el nombre de columna según tu esquema real.
-    // Si tu tabla usa source_name en vez de source, cambia la .eq(...)
+    // 1️⃣ Buscar el source_id real en la tabla sources
+    const { data: sourceRecord, error: sourceError } = await supabase
+      .from("sources")
+      .select("id")
+      .eq("name", source)
+      .single();
+
+    if (sourceError || !sourceRecord) {
+      console.error("❌ Fuente no encontrada:", sourceError?.message);
+      return res.status(404).json({ error: "Fuente no encontrada en tabla sources" });
+    }
+
+    const sourceId = sourceRecord.id;
+    console.log(`✅ Fuente encontrada, ID: ${sourceId}`);
+
+    // 2️⃣ Buscar listings asociados a ese source_id
     const { data: listings, error } = await supabase
       .from("raw_listings")
       .select("id, url, html")
-      .eq("source", source);
+      .eq("source_id", sourceId);
 
     if (error) throw error;
 
@@ -275,7 +281,9 @@ app.post("/reprocess-source", async (req, res) => {
       });
     }
 
-    // 2) Reinyectar cada listing llamando a /ingest-listing interno
+    console.log(`📦 ${listings.length} listings encontrados. Iniciando reprocess...`);
+
+    // 3️⃣ Reinyectar cada listing a /ingest-listing interno
     let processed = 0;
     for (const listing of listings) {
       const payload = {
