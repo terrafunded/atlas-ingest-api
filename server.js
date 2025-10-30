@@ -2,21 +2,22 @@
 // 🕷️ ATLAS SCRAPER API (componente de extracción para Atlas Ingest)
 // =======================================================
 //
-// ✅ Versión completa y estable (incluye TODO):
-// - /extract-listings → Descarga listado principal y envía a Lovable
-// - /render-page → Renderiza HTML de una URL
-// - /ingest-listing → Recibe HTML ya scrapeado y lo reenvía a Lovable
-// - /test-endpoints → Prueba de conexión directa a Lovable
-// - Manejo de errores con try/catch y logs completos
+// ✅ Incluye:
+// - GET  /extract-listings → Descarga HTML de listado principal y envía a Lovable
+// - GET  /render-page → Renderiza HTML de una URL
+// - POST /ingest-listing → Recibe {source,url,html} y lo envía a Lovable
+// - GET  /test-endpoints → Prueba de conexión directa a Lovable
+// - POST /reprocess-source → NUEVO: Reprocesa TODOS los raw_listings de una fuente
 // - Autenticación mediante encabezado "x-ingest-key"
-// - Reintento automático con backoff exponencial
-// - Compatible con Render y Supabase/Lovable
+// - Reintento controlado
+// - Integración con Supabase para leer raw_listings
 //
 // =======================================================
 
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
@@ -27,14 +28,26 @@ app.use(cors({ origin: true }));
 // =======================================================
 const PORT = process.env.PORT || 10000;
 
-// URL base para enviar datos a Lovable Cloud (tu Supabase functions endpoint)
+// Webhook de Lovable (Supabase Edge Function) para recibir ingestas
 const LOVABLE_WEBHOOK_URL =
   process.env.LOVABLE_WEBHOOK_URL ||
   "https://rwyobvwzulgmkwzomuog.supabase.co/functions/v1/scraper-webhook";
 
-// Clave secreta de autenticación hacia Lovable
+// Clave secreta para autenticación entre servicios (la misma que usa Lovable)
 const LOVABLE_INGEST_KEY =
   process.env.LOVABLE_INGEST_KEY || "FALUEFAPIEMASTER";
+
+// URL pública de este propio servicio (para auto-llamarse a /ingest-listing)
+const RENDER_API_URL =
+  process.env.RENDER_API_URL || "http://localhost:" + PORT;
+
+// Supabase (para leer raw_listings)
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const supabase =
+  SUPABASE_URL && SUPABASE_SERVICE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    : null;
 
 // =======================================================
 // 🧠 FUNCIÓN AUXILIAR — Espera (para throttling controlado)
@@ -105,20 +118,15 @@ app.get("/", (req, res) => {
 // =======================================================
 // 🕸️ RUTA: /extract-listings
 // =======================================================
-//
-// Esta ruta se encarga de:
-// 1️⃣ Obtener el HTML del listado principal de terrenos.
-// 2️⃣ Enviar ese HTML directamente a Lovable Cloud (tabla raw_listings).
-// =======================================================
 app.get("/extract-listings", async (req, res) => {
   try {
-    const source = "RanchRealEstate";
+    const source = "ranchrealestate"; // usa tu slug real
     const url = "https://ranchrealestate.com/for-sale/";
 
     console.log("🔍 Iniciando extracción de listados desde:", url);
 
     const html = await safeFetch(url);
-    console.log(`✅ HTML recibido (${html.length} caracteres). Enviando a Lovable...`);
+    console.log(`✅ HTML recibido (${html.length} chars). Enviando a Lovable...`);
 
     const payload = { source, url, html };
     const lovableResponse = await sendToLovable(payload);
@@ -138,10 +146,6 @@ app.get("/extract-listings", async (req, res) => {
 
 // =======================================================
 // 🧭 RUTA: /render-page
-// =======================================================
-//
-// Recibe una URL a renderizar y devuelve su HTML.
-// Ejemplo: /render-page?target=https://ranchrealestate.com/for-sale/
 // =======================================================
 app.get("/render-page", async (req, res) => {
   try {
@@ -164,12 +168,14 @@ app.get("/render-page", async (req, res) => {
 // =======================================================
 // 📥 RUTA: /ingest-listing
 // =======================================================
-//
-// Recibe JSON con { source, url, html } y lo reenvía a Lovable.
-// Esta es la ruta usada cuando otro agente o servicio ya tiene el HTML.
-// =======================================================
 app.post("/ingest-listing", async (req, res) => {
   try {
+    // auth simple por header
+    const key = req.headers["x-ingest-key"];
+    if (key !== LOVABLE_INGEST_KEY) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
     const { source, url, html } = req.body;
     if (!source || !url || !html) {
       return res
@@ -199,9 +205,6 @@ app.post("/ingest-listing", async (req, res) => {
 // =======================================================
 // 🧪 RUTA: /test-endpoints
 // =======================================================
-//
-// Verifica que el servicio puede comunicarse correctamente con Lovable.
-// =======================================================
 app.get("/test-endpoints", async (req, res) => {
   try {
     console.log("🧪 Probando conexión con Lovable...");
@@ -227,17 +230,82 @@ app.get("/test-endpoints", async (req, res) => {
 });
 
 // =======================================================
-// 🧰 RUTA: /debug
+// 🔁 NUEVO: /reprocess-source
 // =======================================================
 //
-// Permite ver configuraciones actuales para diagnóstico rápido.
+// Reprocesa TODOS los raw_listings de una fuente dada.
+// Lee de Supabase y reinyecta a /ingest-listing.
+// Auth: mismo header x-ingest-key.
 // =======================================================
-app.get("/debug", (req, res) => {
-  res.json({
-    port: PORT,
-    webhook_url: LOVABLE_WEBHOOK_URL,
-    ingest_key_configured: !!LOVABLE_INGEST_KEY,
-  });
+app.post("/reprocess-source", async (req, res) => {
+  try {
+    // auth
+    const key = req.headers["x-ingest-key"];
+    if (key !== LOVABLE_INGEST_KEY) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    if (!supabase) {
+      return res
+        .status(500)
+        .json({ error: "Supabase no configurado (env vars faltantes)" });
+    }
+
+    const { source } = req.body;
+    if (!source) {
+      return res.status(400).json({ error: "El campo 'source' es requerido" });
+    }
+
+    console.log(`🔄 Reprocesando listings de la fuente: ${source}`);
+
+    // 1) Traer raw_listings de esa fuente.
+    // IMPORTANTE: ajusta el nombre de columna según tu esquema real.
+    // Si tu tabla usa source_name en vez de source, cambia la .eq(...)
+    const { data: listings, error } = await supabase
+      .from("raw_listings")
+      .select("id, url, html")
+      .eq("source", source);
+
+    if (error) throw error;
+
+    if (!listings || listings.length === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: `No se encontraron listings para la fuente ${source}`,
+      });
+    }
+
+    // 2) Reinyectar cada listing llamando a /ingest-listing interno
+    let processed = 0;
+    for (const listing of listings) {
+      const payload = {
+        source,
+        url: listing.url,
+        html: listing.html || "<html></html>",
+      };
+
+      await fetch(`${RENDER_API_URL}/ingest-listing`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-ingest-key": LOVABLE_INGEST_KEY,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      processed++;
+    }
+
+    console.log(`✅ Reprocesados ${processed} listings de ${source}`);
+    res.json({
+      ok: true,
+      message: `Reprocessed ${processed} listings from ${source}`,
+      listings_count: processed,
+    });
+  } catch (err) {
+    console.error("❌ Error en /reprocess-source:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =======================================================
@@ -251,6 +319,6 @@ app.listen(PORT, () => {
   console.log("   → GET  /render-page?target=<url>");
   console.log("   → POST /ingest-listing");
   console.log("   → GET  /test-endpoints");
-  console.log("   → GET  /debug");
+  console.log("   → POST /reprocess-source  ← NUEVA");
   console.log("🔑 Autenticación con header: x-ingest-key");
 });
