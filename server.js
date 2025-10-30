@@ -170,8 +170,13 @@ app.get("/render-page", async (req, res) => {
 // =======================================================
 app.post("/ingest-listing", async (req, res) => {
   try {
-    const key = req.headers["x-ingest-key"];
-    if (key !== LOVABLE_INGEST_KEY) {
+    const key =
+      req.headers["x-ingest-key"] ||
+      req.headers["X-Ingest-Key"] ||
+      "";
+
+    if (key.trim() !== LOVABLE_INGEST_KEY.trim()) {
+      console.error("❌ Unauthorized: header x-ingest-key inválido o ausente");
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -229,12 +234,17 @@ app.get("/test-endpoints", async (req, res) => {
 });
 
 // =======================================================
-// 🔁 RUTA: /reprocess-source (versión con lookup por UUID)
+// 🔁 RUTA: /reprocess-source (tolerante a headers y espacios)
 // =======================================================
 app.post("/reprocess-source", async (req, res) => {
   try {
-    const key = req.headers["x-ingest-key"];
-    if (key !== LOVABLE_INGEST_KEY) {
+    const key =
+      req.headers["x-ingest-key"] ||
+      req.headers["X-Ingest-Key"] ||
+      "";
+
+    if (key.trim() !== LOVABLE_INGEST_KEY.trim()) {
+      console.error("❌ Unauthorized: header x-ingest-key inválido o ausente");
       return res.status(403).json({ error: "Unauthorized" });
     }
 
